@@ -1,0 +1,71 @@
+id: MS-SPL-012
+name: "MS-SPL-012: New Local Administrator Account Created"
+description: >
+  Detects creation of a new local user account (EventID 4720) immediately
+  followed by addition to a privileged group such as Administrators or
+  Remote Desktop Users (EventID 4732). This pattern indicates potential
+  persistence or privilege escalation activity.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.2"
+severity: high
+status: production
+
+mitre_attack:
+  technique: "T1136.001"
+  tactic: "Persistence"
+  subtechnique: "Create Account: Local Account"
+
+references:
+  - https://attack.mitre.org/techniques/T1136/001/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/builtin/security/win_security_user_added_to_group.yml
+  - https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4720
+
+tags:
+  - account-creation
+  - persistence
+  - privilege-escalation
+  - windows
+  - local-admin
+
+splunk:
+  index: xdr
+  search: |
+    (index=xdr OR index=main) source="WinEventLog:Security"
+    (EventCode=4720 OR EventCode=4732 OR EventCode=4728)
+    | eval
+        event_type = case(EventCode="4720", "Account Created", EventCode="4732", "Added to Local Group", EventCode="4728", "Added to Global Group", true(), "Unknown"),
+        new_account = coalesce(Sam_Account_Name, TargetUserName),
+        admin_account = coalesce(Subject_Account_Name, SubjectUserName),
+        group_name = coalesce(Group_Name, MemberName)
+    | where
+        NOT match(lower(new_account), "^system$|^network service$|^local service$") AND
+        new_account != "-" AND new_account != ""
+    | bucket _time span=30m
+    | stats
+        values(event_type) as event_types
+        values(EventCode) as event_codes
+        values(new_account) as new_accounts
+        values(group_name) as groups
+        values(admin_account) as created_by
+        min(_time) as first_seen
+        max(_time) as last_seen
+        count as event_count
+        by ComputerName, _time
+    | where
+        mvfind(event_types, "Account Created") >= 0 AND
+        (mvfind(event_types, "Added to Local Group") >= 0 OR mvfind(event_types, "Added to Global Group") >= 0)
+    | eval
+        severity = "HIGH",
+        mitre_technique = "T1136.001",
+        mitre_tactic = "Persistence",
+        rule_id = "MS-SPL-012",
+        rule_name = "New Local Administrator Account Created"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
+    | table rule_id, rule_name, ComputerName, new_accounts, groups, created_by, event_types, first_seen, last_seen, severity, mitre_technique
+    | sort - first_seen
+  cron_schedule: "*/30 * * * *"
+  earliest_time: "-30m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"

@@ -1,0 +1,63 @@
+id: MS-SPL-005
+name: "MS-SPL-005: OS Command Injection via Web Request"
+description: >
+  Detects OS command injection attempts in HTTP request URIs and parameters
+  captured by WAF. Identifies shell metacharacter abuse, common command
+  sequences, and known command injection payloads targeting Linux/Windows
+  operating systems behind the web application.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.1"
+severity: critical
+status: production
+
+mitre_attack:
+  technique: "T1059"
+  tactic: "Execution"
+  subtechnique: "Command and Scripting Interpreter"
+
+references:
+  - https://attack.mitre.org/techniques/T1059/
+  - https://owasp.org/www-community/attacks/Command_Injection
+  - https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Command%20Injection
+
+tags:
+  - command-injection
+  - owasp-a03
+  - rce
+  - web-attack
+  - waf
+
+splunk:
+  index: waf
+  search: |
+    index=waf
+    | eval request = coalesce(uri, request_uri, url, _raw)
+    | eval src_ip = coalesce(client_ip, src_ip, remote_addr)
+    | eval uri_path = replace(request, "\?.*$", "")
+    | eval method = coalesce(method, http_method, 'cs-method', request_method)
+    | where match(lower(request), ";cat\s|;ls\s|;id\s|;whoami|;pwd|;uname|;wget\s|;curl\s|;bash\s|;sh\s|;python|;perl|;php|`cat\s|`ls\s|`id`|`whoami`|\$\(cat\s|\$\(ls\s|\$\(id\)|\$\(whoami\)|%60|%3b|&&\s*cat|&&\s*ls|&&\s*id|\|\s*cat|\|\s*ls|\|\s*id|\/etc\/passwd|\/etc\/shadow|cmd\.exe|powershell|net\s+user|net\s+localgroup|ipconfig|systeminfo")
+    | stats
+        count as hit_count
+        values(request) as payloads
+        values(uri_path) as affected_endpoints
+        values(method) as http_methods
+        min(_time) as first_seen
+        max(_time) as last_seen
+        by src_ip
+    | where hit_count >= 1
+    | eval
+        severity = "CRITICAL",
+        mitre_technique = "T1059",
+        mitre_tactic = "Execution",
+        rule_id = "MS-SPL-005",
+        rule_name = "OS Command Injection via Web Request",
+        attack_type = "Command Injection"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
+    | table rule_id, rule_name, src_ip, hit_count, http_methods, affected_endpoints, payloads, first_seen, last_seen, severity, mitre_technique
+    | sort - hit_count
+  cron_schedule: "*/5 * * * *"
+  earliest_time: "-5m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"

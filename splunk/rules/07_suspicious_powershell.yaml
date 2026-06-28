@@ -1,0 +1,65 @@
+id: MS-SPL-007
+name: "MS-SPL-007: Suspicious PowerShell Execution"
+description: >
+  Detects malicious or obfuscated PowerShell execution via Windows Event
+  ID 4104 (Script Block Logging) and Sysmon Event ID 1 (Process Create).
+  Identifies encoded commands, download cradles, AMSI bypass attempts,
+  and known offensive PowerShell patterns.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.2"
+severity: high
+status: production
+
+mitre_attack:
+  technique: "T1059.001"
+  tactic: "Execution"
+  subtechnique: "Command and Scripting Interpreter: PowerShell"
+
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/powershell/powershell_script/posh_ps_suspicious_keywords.yml
+  - https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4104
+
+tags:
+  - powershell
+  - obfuscation
+  - execution
+  - amsi-bypass
+  - download-cradle
+  - windows
+
+splunk:
+  index: xdr
+  search: |
+    (index=xdr OR index=main)
+    (
+        (source="WinEventLog:Microsoft-Windows-PowerShell/Operational" EventCode=4104)
+        OR
+        (source="WinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1 Image="*powershell*")
+    )
+    | eval cmd = coalesce(ScriptBlockText, CommandLine, _raw)
+    | where match(lower(cmd), "-enc\s|-encodedcommand|-e\s+[a-za-z0-9+/]{20,}|iex\s*\(|invoke-expression|invoke-webrequest|downloadstring\s*\(|downloadfile\s*\(|bitstransfer|webclient|system\.net|shellcode|amsiutils|amsi\.dll|amsicontext|set-mppreference|add-mppreference|-disablerealtimemonitoring|bypass|hidden|noninteractive|noprofile|windowstyle\s+hidden|reflection\.assembly|\[convert\]::frombase64|mimikatz|invoke-mimikatz|powersploit|empire|cobalt")
+    | stats
+        count as event_count
+        values(ComputerName) as affected_hosts
+        values(User) as users
+        values(cmd) as suspicious_commands
+        min(_time) as first_seen
+        max(_time) as last_seen
+        by ComputerName
+    | where event_count >= 1
+    | eval
+        severity = "HIGH",
+        mitre_technique = "T1059.001",
+        mitre_tactic = "Execution",
+        rule_id = "MS-SPL-007",
+        rule_name = "Suspicious PowerShell Execution"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
+    | table rule_id, rule_name, ComputerName, users, event_count, suspicious_commands, first_seen, last_seen, severity, mitre_technique
+    | sort - event_count
+  cron_schedule: "*/10 * * * *"
+  earliest_time: "-10m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"

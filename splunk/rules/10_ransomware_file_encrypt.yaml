@@ -1,0 +1,62 @@
+id: MS-SPL-010
+name: "MS-SPL-010: Ransomware Mass File Rename and Encryption"
+description: >
+  Detects ransomware behavior through mass file rename/creation events
+  captured by Sysmon (EventID 11 - File Create) and XDR telemetry.
+  Identifies rapid file extensions changes to known ransomware extensions
+  and high-volume file system operations in a short time window.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.1"
+severity: critical
+status: production
+
+mitre_attack:
+  technique: "T1486"
+  tactic: "Impact"
+  subtechnique: "Data Encrypted for Impact"
+
+references:
+  - https://attack.mitre.org/techniques/T1486/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/file/file_event/file_event_win_ransomware_extensions.yml
+  - https://id-ransomware.malwarehunterteam.com/
+
+tags:
+  - ransomware
+  - file-encryption
+  - impact
+  - mass-file-rename
+  - sysmon
+
+splunk:
+  index: xdr
+  search: |
+    (index=xdr OR index=main)
+    (source="WinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=11)
+    | eval file_path = coalesce(TargetFilename, FilePath, "")
+    | rex field=file_path "\.(?P<file_ext>[^.]+)$"
+    | where len(file_ext) <= 12 AND match(lower(file_ext), "^(locked|encrypted|crypted|rnsmwr|wncrypt|wncryt|locky|cerber|zepto|cryptowall|petya|ryuk|sodinokibi|revil|conti|darkside|blackmatter|hive|alphv|blackcat|lockbit|bianlian|clop|ragnar|dharma|phobos|stop|djvu|maze|egregor|netwalker|doppelpaymer|cuba|grief|snatch|avaddon|babuk|medusa|akira|nokoyawa|8base|ransomed|zeon|ech0raix|lorenz|mountlocker|ranzy)$")
+    | bucket _time span=2m
+    | stats
+        count as file_count
+        dc(file_path) as unique_files
+        values(file_ext) as extensions
+        values(Image) as processes
+        min(_time) as first_seen
+        max(_time) as last_seen
+        by ComputerName, User, _time
+    | where file_count >= 20
+    | eval
+        severity = "CRITICAL",
+        mitre_technique = "T1486",
+        mitre_tactic = "Impact",
+        rule_id = "MS-SPL-010",
+        rule_name = "Ransomware Mass File Rename and Encryption"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
+    | table rule_id, rule_name, ComputerName, User, file_count, unique_files, extensions, processes, first_seen, last_seen, severity, mitre_technique
+    | sort - file_count
+  cron_schedule: "*/2 * * * *"
+  earliest_time: "-2m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"

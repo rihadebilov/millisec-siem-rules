@@ -1,0 +1,69 @@
+id: MS-SPL-014
+name: "MS-SPL-014: T-Pot Honeypot — Mass Hit Spike Detection"
+description: >
+  Detects sudden spikes in honeypot hit counts from T-Pot indicating
+  active scanning, reconnaissance, or coordinated attack campaigns.
+  Correlates hit volume, unique source IPs, and targeted service ports
+  to distinguish targeted attacks from background internet noise.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.2"
+severity: medium
+status: production
+
+mitre_attack:
+  technique: "T1595"
+  tactic: "Reconnaissance"
+  subtechnique: "Active Scanning"
+
+references:
+  - https://attack.mitre.org/techniques/T1595/
+  - https://github.com/telekom-security/tpotce
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/network/net_honeypot.yml
+
+tags:
+  - honeypot
+  - reconnaissance
+  - scanning
+  - tpot
+  - threat-intel
+
+splunk:
+  index: tpot
+  search: |
+    index=tpot
+    | eval src_ip = coalesce(src_ip, src, remote, source_ip)
+    | rex field=_raw "\"src_ip\":\s*\"(?P<src_ip_json>[^\"]+)\""
+    | eval src_ip = coalesce(src_ip_json, src_ip)
+    | eval dest_port = coalesce(dest_port, port, dpt)
+    | bucket _time span=5m
+    | stats
+        count as total_hits
+        dc(src_ip) as unique_attackers
+        dc(dest_port) as unique_ports_targeted
+        values(dest_port) as ports
+        values(src_ip) as attacker_ips
+        by _time
+    | where total_hits >= 50 OR unique_attackers >= 20
+    | eval
+        attack_intensity = case(
+            total_hits >= 500 OR unique_attackers >= 100, "MASS ATTACK",
+            total_hits >= 200 OR unique_attackers >= 50,  "HIGH INTENSITY",
+            total_hits >= 50  OR unique_attackers >= 20,  "ELEVATED",
+            true(), "NORMAL"),
+        severity = case(
+            total_hits >= 500 OR unique_attackers >= 100, "CRITICAL",
+            total_hits >= 200 OR unique_attackers >= 50,  "HIGH",
+            true(), "MEDIUM"),
+        mitre_technique = "T1595",
+        mitre_tactic = "Reconnaissance",
+        rule_id = "MS-SPL-014",
+        rule_name = "T-Pot Honeypot Mass Hit Spike Detection"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(_time)
+    | table rule_id, rule_name, _time, total_hits, unique_attackers, unique_ports_targeted, ports, attack_intensity, severity, mitre_technique
+    | sort - total_hits
+  cron_schedule: "*/5 * * * *"
+  earliest_time: "-5m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"

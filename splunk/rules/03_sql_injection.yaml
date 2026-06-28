@@ -1,0 +1,60 @@
+id: MS-SPL-003
+name: "MS-SPL-003: SQL Injection Attempt Detection"
+description: >
+  Detects SQL injection patterns in web request URIs and POST bodies captured
+  by WAF or web server logs. Matches classic SQLi payloads including UNION SELECT,
+  boolean-based blind, time-based blind, and error-based techniques.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.2"
+severity: critical
+status: production
+
+mitre_attack:
+  technique: "T1190"
+  tactic: "Initial Access"
+  subtechnique: "Exploit Public-Facing Application"
+
+references:
+  - https://attack.mitre.org/techniques/T1190/
+  - https://owasp.org/www-community/attacks/SQL_Injection
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/web/web_sql_injection.yml
+
+tags:
+  - sql-injection
+  - owasp-a03
+  - web-attack
+  - initial-access
+  - waf
+
+splunk:
+  index: waf OR web_logs
+  search: |
+    index=waf OR index=web_logs
+    | eval request = coalesce(uri, request_uri, 'cs-uri-stem', url, _raw)
+    | eval src_ip = coalesce(client_ip, src_ip, 'c-ip', remote_addr)
+    | eval status = coalesce(status, http_status, 'sc-status', response_code)
+    | where match(lower(request), "union\s+select|select\s+.*from|insert\s+into|drop\s+table|update\s+.*set|delete\s+from|exec\s*\(|execute\s*\(|xp_cmdshell|information_schema|1=1|1'='1|or\s+1=1|and\s+1=1|sleep\s*\(|benchmark\s*\(|extractvalue\s*\(|updatexml\s*\(|load_file\s*\(|into\s+outfile|concat\s*\(.*select|group_concat")
+    | stats
+        count as hit_count
+        values(request) as payloads
+        values(status) as http_status_codes
+        dc(request) as unique_payloads
+        min(_time) as first_seen
+        max(_time) as last_seen
+        by src_ip
+    | eval
+        severity = case(hit_count >= 20, "CRITICAL", hit_count >= 5, "HIGH", true(), "MEDIUM"),
+        mitre_technique = "T1190",
+        mitre_tactic = "Initial Access",
+        rule_id = "MS-SPL-003",
+        rule_name = "SQL Injection Attempt Detection",
+        attack_type = "SQLi"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
+    | table rule_id, rule_name, src_ip, hit_count, unique_payloads, payloads, http_status_codes, first_seen, last_seen, severity, mitre_technique
+    | sort - hit_count
+  cron_schedule: "*/5 * * * *"
+  earliest_time: "-5m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"

@@ -1,0 +1,73 @@
+id: MS-SPL-011
+name: "MS-SPL-011: Sustained Outbound Connections — Potential Exfiltration"
+description: >
+  Detects potential data exfiltration by identifying hosts that establish an
+  abnormally high number of outbound network connections to a single external
+  destination within a short time window. Sysmon Network Connection events
+  (EventID 3) do not carry byte-transfer counters, so connection frequency
+  to one external IP is used as the detection proxy — a pattern consistent
+  with chunked uploads, C2 beaconing, or scripted exfiltration.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.1"
+severity: high
+status: production
+
+mitre_attack:
+  technique: "T1048"
+  tactic: "Exfiltration"
+  subtechnique: "Exfiltration Over Alternative Protocol"
+
+references:
+  - https://attack.mitre.org/techniques/T1048/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/network_connection/net_connection_win_susp_outbound_smtp.yml
+
+tags:
+  - exfiltration
+  - data-transfer
+  - network
+  - beaconing
+  - sysmon
+
+notes: >
+  LIMITATION: Sysmon EventID 3 has no byte-count field, so this rule cannot
+  measure transfer volume directly. If a proxy/firewall feed with byte
+  counters (e.g. Palo Alto, Squid, or WAF access logs with bytes_sent) is
+  onboarded later, add a companion rule using sum(bytes_sent) for true
+  volume-based exfiltration detection.
+
+splunk:
+  index: xdr
+  search: |
+    (index=xdr OR index=main)
+    source="WinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=3
+    | eval
+        src_ip  = coalesce(SourceIp, src_ip),
+        dst_ip  = coalesce(DestinationIp, dest_ip),
+        dst_port = coalesce(DestinationPort, dest_port)
+    | where isnotnull(dst_ip) AND dst_ip != "-"
+    | where NOT match(dst_ip, "^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.|^127\.|^::1$|^fc00:|^fe80:")
+    | bucket _time span=5m
+    | stats
+        count as connection_count
+        dc(dst_port) as unique_ports
+        values(dst_port) as dest_ports
+        values(Image) as processes
+        min(_time) as first_seen
+        max(_time) as last_seen
+        by src_ip, dst_ip, ComputerName, User, _time
+    | where connection_count >= 30
+    | eval
+        severity = case(connection_count >= 200, "CRITICAL", connection_count >= 80, "HIGH", true(), "MEDIUM"),
+        mitre_technique = "T1048",
+        mitre_tactic = "Exfiltration",
+        rule_id = "MS-SPL-011",
+        rule_name = "Sustained Outbound Connections Potential Exfiltration"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
+    | table rule_id, rule_name, ComputerName, User, src_ip, dst_ip, connection_count, unique_ports, dest_ports, processes, first_seen, last_seen, severity, mitre_technique
+    | sort - connection_count
+  cron_schedule: "*/15 * * * *"
+  earliest_time: "-15m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"

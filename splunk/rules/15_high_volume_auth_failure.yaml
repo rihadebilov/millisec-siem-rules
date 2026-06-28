@@ -1,0 +1,75 @@
+id: MS-SPL-015
+name: "MS-SPL-015: High-Volume Authentication Failure — Multi-Source Detection"
+description: >
+  Detects high-volume authentication failures across multiple sources including
+  Windows Security logs (EventID 4625), WAF auth endpoints, and web application
+  login failures. Correlates failure counts across all monitored indexes to
+  identify coordinated credential stuffing and distributed brute-force campaigns.
+author: "MilliSec Blue Team — Rihad Ebilov"
+date: "2026-06-19"
+version: "1.2"
+severity: high
+status: production
+
+mitre_attack:
+  technique: "T1110"
+  tactic: "Credential Access"
+  subtechnique: "Brute Force"
+
+references:
+  - https://attack.mitre.org/techniques/T1110/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/builtin/security/win_security_susp_failed_logons_single_source.yml
+
+tags:
+  - brute-force
+  - credential-stuffing
+  - authentication
+  - multi-source
+  - high-volume
+
+splunk:
+  index: xdr OR waf
+  search: |
+    | multisearch
+        [search (index=xdr OR index=main) source="WinEventLog:Security" EventCode=4625
+            | eval src_ip=IpAddress, auth_source="Windows-4625", account=Account_Name]
+        [search index=waf
+            | eval request = coalesce(uri, request_uri, 'cs-uri-stem', url)
+            | eval status = coalesce(status, http_status, 'sc-status', response_code)
+            | where match(lower(request), "login|signin|auth|password|credential|session")
+            | where status IN ("401", "403", "302")
+            | eval auth_source="WAF", src_ip=coalesce(client_ip, src_ip, 'c-ip', remote_addr), account="web_user"]
+    | where src_ip != "-" AND src_ip != "" AND src_ip != "127.0.0.1" AND src_ip != "::1"
+    | where NOT match(src_ip, "^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.")
+    | bucket _time span=10m
+    | stats
+        count as failure_count
+        dc(auth_source) as source_count
+        values(auth_source) as sources
+        dc(account) as unique_accounts
+        values(account) as accounts
+        min(_time) as first_seen
+        max(_time) as last_seen
+        by src_ip, _time
+    | where failure_count >= 15
+    | eval
+        attack_type = case(
+            source_count >= 2, "Multi-Vector Attack",
+            unique_accounts >= 10, "Credential Stuffing",
+            true(), "Brute Force"),
+        severity = case(
+            failure_count >= 100, "CRITICAL",
+            failure_count >= 50, "HIGH",
+            true(), "MEDIUM"),
+        mitre_technique = "T1110",
+        mitre_tactic = "Credential Access",
+        rule_id = "MS-SPL-015",
+        rule_name = "High-Volume Authentication Failure Multi-Source"
+    | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
+    | table rule_id, rule_name, src_ip, failure_count, attack_type, source_count, sources, unique_accounts, accounts, first_seen, last_seen, severity, mitre_technique
+    | sort - failure_count
+  cron_schedule: "*/10 * * * *"
+  earliest_time: "-10m@m"
+  latest_time: "now"
+  alert_threshold: 0
+  alert_comparator: "greater than"
