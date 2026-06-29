@@ -1,0 +1,54 @@
+{
+  "id": "MS-QRD-008",
+  "name": "MS-QRD-008: Anomalous Outbound Network Flow — Suspicious Protocol and Port Usage",
+  "description": "Detects anomalous outbound network connections from internal hosts using uncommon ports, non-standard protocols, or destination ports that do not match the expected application layer protocol. Identifies potential data exfiltration, C2 communication, or malware callbacks via unusual port combinations such as high ephemeral destination ports, cleartext protocols where encrypted alternatives exist, and connections to reserved or non-routable address space. Complements rule MS-QRD-004 (beaconing) by focusing on protocol and port anomalies rather than connection frequency.",
+  "author": "MilliSec Blue Team — Rihad Ebilov",
+  "date": "2026-06-19",
+  "version": "1.0",
+  "severity": "MEDIUM",
+  "status": "production",
+
+  "mitre_attack": {
+    "technique": "T1048",
+    "tactic": "Exfiltration",
+    "subtechnique": "Exfiltration Over Alternative Protocol"
+  },
+
+  "references": [
+    "https://attack.mitre.org/techniques/T1048/",
+    "https://github.com/SigmaHQ/sigma/blob/master/rules/network/net_susp_dns_b64_queries.yml",
+    "https://www.sans.org/reading-room/whitepapers/covert/covert-channel-techniques-38798"
+  ],
+
+  "tags": [
+    "exfiltration",
+    "covert-channel",
+    "non-standard-port",
+    "protocol-anomaly",
+    "network-flow",
+    "data-loss"
+  ],
+
+  "qradar": {
+    "database": "events",
+    "aql": "SELECT sourceip AS \"Source IP\", destinationip AS \"Destination IP\", destinationport AS \"Destination Port\", LOGSOURCENAME(logsourceid) AS \"Log Source\", CATEGORYNAME(category) AS \"Event Category\", COUNT(*) AS \"Connection Count\", MIN(DATEFORMAT(starttime, 'yyyy-MM-dd HH:mm:ss')) AS \"First Seen\", MAX(DATEFORMAT(starttime, 'yyyy-MM-dd HH:mm:ss')) AS \"Last Seen\", CASE WHEN destinationport IN (23, 21, 69, 79, 512, 513, 514) THEN 'Cleartext Protocol' WHEN destinationport IN (4444, 1337, 31337, 8888, 9001, 9999, 6666, 6667, 1234, 54321) THEN 'Known Malware Port' WHEN destinationport BETWEEN 49152 AND 65535 THEN 'High Ephemeral Port' ELSE 'Other Suspicious' END AS \"Anomaly Type\" FROM events WHERE sourceip IS NOT NULL AND destinationip IS NOT NULL AND (INCIDR('10.0.0.0/8', sourceip) OR INCIDR('172.16.0.0/12', sourceip) OR INCIDR('192.168.0.0/16', sourceip)) AND NOT (INCIDR('10.0.0.0/8', destinationip) OR INCIDR('172.16.0.0/12', destinationip) OR INCIDR('192.168.0.0/16', destinationip)) AND (destinationport IN (23, 21, 69, 79, 512, 513, 514, 4444, 1337, 31337, 8888, 9001, 9999, 6666, 6667, 1234, 54321) OR (destinationport BETWEEN 49152 AND 65535 AND destinationport NOT IN (50000, 51820))) GROUP BY sourceip, destinationip, destinationport, LOGSOURCENAME(logsourceid), CATEGORYNAME(category) HAVING COUNT(*) >= 3 ORDER BY \"Connection Count\" DESC LAST 15 MINUTES",
+
+    "offense_relevance": "Outbound connections to known malware ports (4444=Metasploit default, 1337/31337=classic hacker ports, 9001=Tor, 6667=IRC C2) are high-confidence indicators. Cleartext protocol usage (Telnet=23, FTP=21, TFTP=69, rsh=512-514) to external IPs suggests either misconfiguration or deliberate covert channel. High ephemeral port (49152-65535) outbound connections to external IPs can indicate custom malware using randomized ports. Correlate with MS-QRD-004 for beaconing confirmation.",
+
+    "response_actions": [
+      "Block the specific destination IP and port combination at perimeter firewall",
+      "Investigate the process on source host that initiated the connection",
+      "For cleartext protocol hits: enforce protocol replacement policy (SSH instead of Telnet/rsh)",
+      "For known malware port hits: treat as confirmed compromise — initiate IR procedure",
+      "Capture network traffic between source and destination for forensic analysis",
+      "Add destination IP to threat intelligence blacklist"
+    ],
+
+    "false_positive_notes": "Legitimate FTP transfers to known file sharing partners. Gaming or P2P applications using high ephemeral ports. VPN software using non-standard ports. IoT devices with legacy protocols. Custom internal applications using non-standard ports. Mitigate by maintaining a QRadar Reference Set of approved destination IPs for cleartext protocols.",
+
+    "tuning_notes": "PORT 50000 and 51820 excluded from ephemeral port check — these are commonly used by IBM tools and WireGuard VPN respectively. Adjust the exclusion list (NOT IN) based on your environment. The CASE WHEN 'Anomaly Type' field allows filtering results by threat category in QRadar offense investigation. Consider splitting into severity tiers: CRITICAL for known malware ports, HIGH for cleartext protocols, MEDIUM for high ephemeral ports.",
+
+    "alert_threshold": 3,
+    "time_interval_minutes": 15
+  }
+}

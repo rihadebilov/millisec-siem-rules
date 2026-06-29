@@ -1,0 +1,55 @@
+{
+  "id": "MS-QRD-004",
+  "name": "MS-QRD-004: Command and Control Beaconing — Periodic Outbound Connection",
+  "description": "Detects Command and Control (C2) beaconing behavior by identifying internal hosts making highly periodic, repetitive outbound connections to the same external IP and port combination. Malware implants and RATs typically check in with their C2 server at fixed intervals (every N seconds/minutes) to receive instructions or exfiltrate data. This regularity distinguishes C2 traffic from normal web browsing which is inherently irregular. Detects beaconing via high connection count to single external destination within a short window.",
+  "author": "MilliSec Blue Team — Rihad Ebilov",
+  "date": "2026-06-19",
+  "version": "1.0",
+  "severity": "CRITICAL",
+  "status": "production",
+
+  "mitre_attack": {
+    "technique": "T1071.001",
+    "tactic": "Command and Control",
+    "subtechnique": "Application Layer Protocol: Web Protocols"
+  },
+
+  "references": [
+    "https://attack.mitre.org/techniques/T1071/001/",
+    "https://github.com/SigmaHQ/sigma/blob/master/rules/network/net_beaconing.yml",
+    "https://www.activecountermeasures.com/what-is-beaconing/"
+  ],
+
+  "tags": [
+    "beaconing",
+    "c2",
+    "command-and-control",
+    "malware",
+    "periodic-connection",
+    "rat",
+    "cobalt-strike"
+  ],
+
+  "qradar": {
+    "database": "events",
+    "aql": "SELECT sourceip AS \"Source IP (Infected Host)\", destinationip AS \"Destination IP (C2 Candidate)\", destinationport AS \"Destination Port\", LOGSOURCENAME(logsourceid) AS \"Log Source\", COUNT(*) AS \"Connection Count\", MIN(DATEFORMAT(starttime, 'yyyy-MM-dd HH:mm:ss')) AS \"First Beacon\", MAX(DATEFORMAT(starttime, 'yyyy-MM-dd HH:mm:ss')) AS \"Last Beacon\", (UNIX_TIMESTAMP(MAX(starttime)) - UNIX_TIMESTAMP(MIN(starttime))) AS \"Duration Seconds\", CASE WHEN COUNT(*) > 0 AND (UNIX_TIMESTAMP(MAX(starttime)) - UNIX_TIMESTAMP(MIN(starttime))) > 0 THEN ROUND((UNIX_TIMESTAMP(MAX(starttime)) - UNIX_TIMESTAMP(MIN(starttime))) / COUNT(*), 1) ELSE 0 END AS \"Avg Interval Seconds\" FROM events WHERE (CATEGORYNAME(category) ILIKE '%connection%' OR CATEGORYNAME(category) ILIKE '%network%' OR destinationport IN (80, 443, 8080, 8443, 4444, 1337, 31337, 8888)) AND sourceip IS NOT NULL AND destinationip IS NOT NULL AND (INCIDR('10.0.0.0/8', sourceip) OR INCIDR('172.16.0.0/12', sourceip) OR INCIDR('192.168.0.0/16', sourceip)) AND NOT (INCIDR('10.0.0.0/8', destinationip) OR INCIDR('172.16.0.0/12', destinationip) OR INCIDR('192.168.0.0/16', destinationip)) GROUP BY sourceip, destinationip, destinationport, LOGSOURCENAME(logsourceid) HAVING COUNT(*) >= 20 ORDER BY \"Connection Count\" DESC LAST 30 MINUTES",
+
+    "offense_relevance": "A single internal host making 20+ repeated outbound connections to the same external IP:Port within 30 minutes is a strong beacon indicator. The computed 'Avg Interval Seconds' field helps identify regularity — C2 beacons typically show intervals of 30-300 seconds with low variance. Correlate destination IP against threat intelligence feeds (AbuseIPDB, MISP) to confirm known C2 infrastructure.",
+
+    "response_actions": [
+      "Immediately block destination IP at perimeter firewall",
+      "Isolate source host from network",
+      "Collect memory dump from source host for malware analysis",
+      "Search for persistence mechanisms on source host (Run keys, scheduled tasks, services)",
+      "Submit destination IP to AbuseIPDB and cross-reference with MISP",
+      "Investigate all other internal hosts that communicated with same destination IP"
+    ],
+
+    "false_positive_notes": "Legitimate software update checkers (antivirus, OS updates) polling at regular intervals. Monitoring agents (Zabbix, PRTG, Splunk UF heartbeats). VPN keepalive packets. NTP clients. Mitigate by whitelisting known update server IPs and monitoring software destination IPs.",
+
+    "tuning_notes": "Key beacon indicators: (1) COUNT(*) >= 20 connections in 30 min to same IP:Port. (2) Avg Interval Seconds between 10-300 (typical C2 check-in range). (3) Destination port matches common C2 ports (4444, 8080, 8443, 443). For higher fidelity, add STDDEV calculation on connection timestamps — true beacons have very low standard deviation (< 5 seconds variance from interval mean).",
+
+    "alert_threshold": 20,
+    "time_interval_minutes": 30
+  }
+}
