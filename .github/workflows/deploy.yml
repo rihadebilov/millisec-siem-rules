@@ -1,0 +1,100 @@
+name: Deploy SIEM Rules
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'splunk/rules/*.yaml'
+      - 'splunk/deploy_splunk.py'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target (splunk / qradar / all)'
+        required: true
+        default: 'splunk'
+
+jobs:
+  # ── Splunk Deployment ────────────────────────────────────────────────────────
+  deploy-splunk:
+    name: Deploy → Splunk
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.target == 'splunk' || github.event.inputs.target == 'all'))
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests pyyaml
+
+      - name: Validate YAML rule files
+        run: |
+          python - <<'EOF'
+          import yaml, sys
+          from pathlib import Path
+          errors = 0
+          for f in sorted(Path("splunk/rules").glob("*.yaml")):
+              if f.name == ".gitkeep":
+                  continue
+              try:
+                  with open(f) as fh:
+                      data = yaml.safe_load(fh)
+                  required = ["id", "name", "severity", "mitre_attack", "splunk"]
+                  for field in required:
+                      if field not in data:
+                          print(f"❌ {f.name}: missing field '{field}'")
+                          errors += 1
+                  print(f"✅ {f.name}: OK ({data.get('id','?')} — {data.get('name','?')})")
+              except Exception as e:
+                  print(f"❌ {f.name}: {e}")
+                  errors += 1
+          if errors:
+              print(f"\n{errors} validation error(s). Aborting.")
+              sys.exit(1)
+          print(f"\nAll rule files are valid.")
+          EOF
+
+      - name: Deploy Splunk Rules
+        env:
+          SPLUNK_HOST: ${{ secrets.SPLUNK_HOST }}
+          SPLUNK_PORT: ${{ secrets.SPLUNK_PORT }}
+          SPLUNK_TOKEN: ${{ secrets.SPLUNK_TOKEN }}
+        run: |
+          python splunk/deploy_splunk.py
+
+  # ── QRadar Deployment (future) ───────────────────────────────────────────────
+  deploy-qradar:
+    name: Deploy → QRadar
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.target == 'qradar' || github.event.inputs.target == 'all')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Deploy QRadar Rules
+        env:
+          QRADAR_HOST: ${{ secrets.QRADAR_HOST }}
+          QRADAR_TOKEN: ${{ secrets.QRADAR_TOKEN }}
+        run: |
+          python qradar/deploy_qradar.py
