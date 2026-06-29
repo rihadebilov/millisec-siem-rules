@@ -1,0 +1,26 @@
+# MilliSec SIEM Rules — Configuration Template
+# Copy this file to config.yaml and fill in your values
+# NEVER commit config.yaml to Git (it's in .gitignore)
+#
+# NOTE: splunk/deploy_splunk.py currently reads configuration EXCLUSIVELY from
+# environment variables (SPLUNK_HOST, SPLUNK_PORT, SPLUNK_TOKEN, etc.) — see README
+# "Manual Deployment" section. This file is NOT parsed by the current deploy script.
+# It is kept as a reference template for local tooling and for the upcoming
+# QRadar deployer (qradar/deploy_qradar.py), which is not yet implemented.
+
+splunk:
+  host: "34.88.60.227"
+  port: 8089
+  # Use token auth (recommended) OR user/pass
+  token: "YOUR_SPLUNK_API_TOKEN_HERE"
+  # user: "admin"
+  # password: "YOUR_PASSWORD"
+  app: "search"
+  owner: "admin"
+  verify_ssl: false
+
+qradar:
+  host: "YOUR_QRADAR_IP"
+  port: 443
+  token: "YOUR_QRADAR_SEC_TOKEN"
+  verify_ssl: false
