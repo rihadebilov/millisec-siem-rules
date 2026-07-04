@@ -30,7 +30,7 @@ SPLUNK_USER  = os.environ.get("SPLUNK_USER", "admin")
 SPLUNK_PASS  = os.environ.get("SPLUNK_PASS", "")
 ALERT_EMAIL  = os.environ.get("ALERT_EMAIL", "")
 APP          = "search"
-OWNER        = "admin"
+OWNER        = "nobody"
 
 BASE_URL = f"https://{SPLUNK_HOST}:{SPLUNK_PORT}/servicesNS/{OWNER}/{APP}"
 
