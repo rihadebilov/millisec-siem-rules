@@ -7,6 +7,7 @@ Usage:
     export SPLUNK_HOST="34.88.60.227"
     export SPLUNK_PORT="8089"
     export SPLUNK_TOKEN="your-token"
+    export ALERT_EMAIL="your-email@gmail.com"
     python splunk/deploy_splunk.py
 
 Author: Rihad Ebilov — MilliSec Blue Team
@@ -27,6 +28,7 @@ SPLUNK_PORT  = os.environ.get("SPLUNK_PORT", "8089")
 SPLUNK_TOKEN = os.environ.get("SPLUNK_TOKEN", "")
 SPLUNK_USER  = os.environ.get("SPLUNK_USER", "admin")
 SPLUNK_PASS  = os.environ.get("SPLUNK_PASS", "")
+ALERT_EMAIL  = os.environ.get("ALERT_EMAIL", "")
 APP          = "search"
 OWNER        = "admin"
 
@@ -81,6 +83,20 @@ def build_payload(rule: dict, is_update: bool = False) -> dict:
         "alert.expires":             "24h",
         "alert.suppress":            "0",
         "disabled":                  "0",
+
+        # ── Alert actions: Telegram (script) + Email ───────────────────
+        "actions":                    "script,email",
+
+        # Telegram — calls $SPLUNK_HOME/bin/scripts/telegram_alert.sh
+        "action.script":              "1",
+        "action.script.filename":     "telegram_alert.sh",
+
+        # Email
+        "action.email":                "1",
+        "action.email.to":             ALERT_EMAIL,
+        "action.email.subject":        f"[MilliSec Alert] {rule.get('name','')}",
+        "action.email.message.alert":  rule.get("description", "").strip(),
+        "action.email.sendresults":    "0",
     }
 
     if not is_update:
@@ -152,6 +168,9 @@ def deploy_rule(rule_path: Path) -> bool:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    if not ALERT_EMAIL:
+        print("⚠️  WARNING: ALERT_EMAIL is not set — email alert action will have empty 'to' field.")
+
     rules_dir  = Path(__file__).parent / "rules"
     rule_files = sorted([f for f in rules_dir.glob("*.yaml") if f.name != ".gitkeep"])
 
@@ -160,6 +179,7 @@ def main():
     print("=" * 60)
     print(f"  Target  : {SPLUNK_HOST}:{SPLUNK_PORT}")
     print(f"  Auth    : {'Token' if SPLUNK_TOKEN else 'User/Pass'}")
+    print(f"  Alerts  : Telegram (script) + Email → {ALERT_EMAIL or '[NOT SET]'}")
     print(f"  Rules   : {len(rule_files)} files found")
     print("=" * 60)
 
