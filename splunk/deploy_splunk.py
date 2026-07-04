@@ -84,20 +84,20 @@ def build_payload(rule: dict, is_update: bool = False) -> dict:
         "alert.suppress":            "0",
         "disabled":                  "0",
 
-        # ── Alert actions: Telegram (script) + Email ───────────────────
-        "actions":                    "script,email",
-
-        # Telegram — calls $SPLUNK_HOME/bin/scripts/telegram_alert.sh
-        "action.script":              "1",
-        "action.script.filename":     "telegram_alert.sh",
-
-        # Email
-        "action.email":                "1",
-        "action.email.to":             ALERT_EMAIL,
-        "action.email.subject":        f"[MilliSec Alert] {rule.get('name','')}",
-        "action.email.message.alert":  rule.get("description", "").strip(),
-        "action.email.sendresults":    "0",
+        # ── Alert actions: Telegram (script) ───────────────────
+        "actions":                   "script",
+        "action.script":             "1",
+        "action.script.filename":    "telegram_alert.sh",
     }
+
+    # Əgər ALERT_EMAIL təyin olunubsa, Email aksiyasını da payload-a əlavə et
+    if ALERT_EMAIL:
+        payload["actions"] = "script,email"
+        payload["action.email"] = "1"
+        payload["action.email.to"] = ALERT_EMAIL
+        payload["action.email.subject"] = f"[MilliSec Alert] {rule.get('name','')}"
+        payload["action.email.message.alert"] = rule.get("description", "").strip()
+        payload["action.email.sendresults"] = "0"
 
     if not is_update:
         payload["name"] = rule["name"]
@@ -169,7 +169,7 @@ def deploy_rule(rule_path: Path) -> bool:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     if not ALERT_EMAIL:
-        print("⚠️  WARNING: ALERT_EMAIL is not set — email alert action will have empty 'to' field.")
+        print("⚠️  WARNING: ALERT_EMAIL is not set — email alert action will be disabled.")
 
     rules_dir  = Path(__file__).parent / "rules"
     rule_files = sorted([f for f in rules_dir.glob("*.yaml") if f.name != ".gitkeep"])
@@ -179,7 +179,7 @@ def main():
     print("=" * 60)
     print(f"  Target  : {SPLUNK_HOST}:{SPLUNK_PORT}")
     print(f"  Auth    : {'Token' if SPLUNK_TOKEN else 'User/Pass'}")
-    print(f"  Alerts  : Telegram (script) + Email → {ALERT_EMAIL or '[NOT SET]'}")
+    print(f"  Alerts  : Telegram (script) {'+ Email → ' + ALERT_EMAIL if ALERT_EMAIL else ''}")
     print(f"  Rules   : {len(rule_files)} files found")
     print("=" * 60)
 
