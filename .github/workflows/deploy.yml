@@ -26,16 +26,16 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install requests pyyaml
+          pip install requests pyyaml urllib3
 
       - name: Validate YAML rule files
         run: |
@@ -64,11 +64,38 @@ jobs:
           print(f"\nAll rule files are valid.")
           EOF
 
+      - name: Preflight Splunk auth
+        env:
+          SPLUNK_HOST: ${{ secrets.SPLUNK_HOST }}
+          SPLUNK_PORT: ${{ secrets.SPLUNK_PORT }}
+          SPLUNK_TOKEN: ${{ secrets.SPLUNK_TOKEN }}
+        run: |
+          python - <<'EOF'
+          import os, sys, requests, urllib3
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+          
+          h=os.environ["SPLUNK_HOST"]
+          p=os.getenv("SPLUNK_PORT","8089")
+          t=os.environ["SPLUNK_TOKEN"]
+          
+          r=requests.get(
+            f"https://{h}:{p}/services/server/info?output_mode=json",
+            headers={"Authorization": f"Bearer {t}"},
+            verify=False, timeout=20
+          )
+          if r.status_code >= 400:
+            print(f"❌ Splunk preflight failed: HTTP {r.status_code} {r.text[:300]}")
+            sys.exit(1)
+          print("✅ Splunk preflight OK: Token is valid!")
+          EOF
+
       - name: Deploy Splunk Rules
         env:
           SPLUNK_HOST: ${{ secrets.SPLUNK_HOST }}
           SPLUNK_PORT: ${{ secrets.SPLUNK_PORT }}
           SPLUNK_TOKEN: ${{ secrets.SPLUNK_TOKEN }}
+          SPLUNK_USER: ${{ secrets.SPLUNK_USER }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
         run: |
           python splunk/deploy_splunk.py
 
@@ -82,10 +109,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
