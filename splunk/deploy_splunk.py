@@ -66,8 +66,6 @@ def rule_exists(rule_name: str) -> bool:
 def build_payload(rule: dict, is_update: bool = False) -> dict:
     splunk = rule.get("splunk", {})
 
-    # Fix multi-index search syntax for Splunk
-    # e.g. index: "xdr OR waf" → handled in SPL directly
     search_query = splunk.get("search", "").strip()
 
     payload = {
@@ -81,7 +79,10 @@ def build_payload(rule: dict, is_update: bool = False) -> dict:
         "alert_comparator":          splunk.get("alert_comparator", "greater than"),
         "alert_threshold":           str(splunk.get("alert_threshold", 0)),
         "alert.expires":             "24h",
-        "alert.suppress":            "0",
+        
+        # ── Throttling (Suppress) Ayarları ───────────────────
+        "alert.suppress":            str(splunk.get("alert_suppress", "1")),      # Default olaraq boğulmanı aktiv edirik
+        "alert.suppress.period":     str(splunk.get("alert_suppress_period", "1h")), # Default olaraq 1 saat boğuruq
         "disabled":                  "0",
 
         # ── Alert actions: Telegram (script) ───────────────────
@@ -97,7 +98,10 @@ def build_payload(rule: dict, is_update: bool = False) -> dict:
         payload["action.email.to"] = ALERT_EMAIL
         payload["action.email.subject"] = f"[MilliSec Alert] {rule.get('name','')}"
         payload["action.email.message.alert"] = rule.get("description", "").strip()
-        payload["action.email.sendresults"] = "0"
+        
+        # E-poçt probleminin həlli üçün nəticələri daxil edirik
+        payload["action.email.sendresults"] = "1"
+        payload["action.email.inline"] = "1"
 
     if not is_update:
         payload["name"] = rule["name"]
