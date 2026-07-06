@@ -7,12 +7,14 @@ on:
     paths:
       - 'splunk/rules/*.yaml'
       - 'splunk/deploy_splunk.py'
+      - 'qradar/rules/*.json'           # QRadar faylları əlavə edildi
+      - 'qradar/deploy_qradar.py'       # QRadar skripti əlavə edildi
   workflow_dispatch:
     inputs:
       target:
         description: 'Deploy target (splunk / qradar / all)'
         required: true
-        default: 'splunk'
+        default: 'all'
 
 jobs:
   # ── Splunk Deployment ────────────────────────────────────────────────────────
@@ -99,13 +101,14 @@ jobs:
         run: |
           python splunk/deploy_splunk.py
 
-  # ── QRadar Deployment (future) ───────────────────────────────────────────────
+  # ── QRadar Deployment ────────────────────────────────────────────────────────
   deploy-qradar:
     name: Deploy → QRadar
     runs-on: ubuntu-latest
     if: >
-      github.event_name == 'workflow_dispatch' &&
-      (github.event.inputs.target == 'qradar' || github.event.inputs.target == 'all')
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.target == 'qradar' || github.event.inputs.target == 'all'))
 
     steps:
       - name: Checkout repository
@@ -117,7 +120,30 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests urllib3
+
+      - name: Preflight QRadar auth
+        env:
+          QRADAR_HOST: ${{ secrets.QRADAR_HOST }}
+          QRADAR_TOKEN: ${{ secrets.QRADAR_TOKEN }}
+        run: |
+          python - <<'EOF'
+          import os, sys, requests, urllib3
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+          
+          h=os.environ["QRADAR_HOST"]
+          t=os.environ["QRADAR_TOKEN"]
+          
+          r=requests.get(
+            f"https://{h}:443/api/system/about",
+            headers={"SEC": t, "Accept": "application/json"},
+            verify=False, timeout=20
+          )
+          if r.status_code >= 400:
+            print(f"❌ QRadar preflight failed: HTTP {r.status_code} {r.text[:300]}")
+            sys.exit(1)
+          print("✅ QRadar preflight OK: Token is valid!")
+          EOF
 
       - name: Deploy QRadar Rules
         env:
