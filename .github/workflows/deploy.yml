@@ -7,7 +7,7 @@ on:
     paths:
       - 'splunk/rules/*.yaml'
       - 'splunk/deploy_splunk.py'
-      - 'qradar/rules/*.json'           # QRadar faylları əlavə edildi
+      - 'qradar/rules/*.xml'           # QRadar faylları əlavə edildi
       - 'qradar/deploy_qradar.py'       # QRadar skripti əlavə edildi
   workflow_dispatch:
     inputs:
