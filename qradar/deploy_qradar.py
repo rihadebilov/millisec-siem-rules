@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
-MilliSec Blue Team — QRadar Extension Deployer
-GitHub → QRadar REST API Pipeline
-
-Deploys rules packed as an Extension (.zip) via:
-  POST /api/config/extension_management/extensions
+MilliSec Blue Team — QRadar On-The-Fly Extension Deployer
+GitHub (XML) → Auto-Zip in Memory → QRadar Extension API
 
 Author: Rihad Ebilov — MilliSec Blue Team
 """
@@ -13,6 +10,8 @@ import os
 import sys
 import requests
 import urllib3
+import zipfile
+import io
 from pathlib import Path
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -36,44 +35,62 @@ def get_headers():
         "Version": "12.0"
     }
 
-# ── Extension Deployment ───────────────────────────────────────────────────────
-def deploy_extension(zip_path: Path) -> bool:
-    print(f"\n  [Deploying Extension] {zip_path.name}")
-    url = f"{BASE_URL}/config/extension_management/extensions"
+# ── On-The-Fly Compression & Deployment ────────────────────────────────────────
+def deploy_xml_as_zip(xml_path: Path) -> bool:
+    print(f"\n  [Processing] Reading XML: {xml_path.name}")
     
-    with open(zip_path, 'rb') as f:
-        files = {'file': (zip_path.name, f, 'application/zip')}
+    # Python ilə faylı RAM mühitində sıxıb ZIP halına salırıq
+    zip_buffer = io.BytesIO()
+    try:
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # XML faylını orijinal adı ilə arxivin daxilinə yazırıq
+            zip_file.write(xml_path, arcname=xml_path.name)
+        zip_buffer.seek(0)
+        print(f"  📦 Compressed {xml_path.name} into an in-memory ZIP package.")
+    except Exception as e:
+        print(f"  ❌ Compression failed: {e}")
+        return False
+
+    url = f"{BASE_URL}/config/extension_management/extensions"
+    zip_filename = f"{xml_path.stem}.zip"
+    
+    print(f"  🚀 Sending generated {zip_filename} to QRadar Extension API...")
+    files = {'file': (zip_filename, zip_buffer, 'application/zip')}
+    
+    try:
         resp = requests.post(url, headers=get_headers(), files=files, verify=False)
-        
-    if resp.status_code in (200, 201, 202):
-        print(f"  ✅ Extension uploaded successfully! Status: {resp.status_code}")
-        return True
-    else:
-        print(f"  ❌ FAILED [{resp.status_code}]")
-        print(f"     Raw: {resp.text[:400]}")
+        if resp.status_code in (200, 201, 202):
+            print(f"  ✅ Extension uploaded successfully! Status: {resp.status_code}")
+            return True
+        else:
+            print(f"  ❌ FAILED [{resp.status_code}]")
+            print(f"     Raw: {resp.text[:400]}")
+            return False
+    except Exception as e:
+        print(f"  ❌ API Connection failed: {e}")
         return False
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     rules_dir  = Path(__file__).parent / "rules"
-    zip_files = sorted(rules_dir.glob("*.zip"))
+    xml_files = sorted(rules_dir.glob("*.xml"))
 
     print("=" * 60)
-    print("  MilliSec Blue Team — QRadar Extension Deployer")
+    print("  MilliSec Blue Team — QRadar On-The-Fly Extension Deployer")
     print("=" * 60)
     print(f"  Target  : {QRADAR_HOST}:{QRADAR_PORT}")
     print(f"  Auth    : SEC Token")
-    print(f"  Files   : {len(zip_files)} .zip packages found")
-    print(f"  Mode    : Extension Management (/api/config/extension_management/extensions)")
+    print(f"  Files   : {len(xml_files)} .xml rules file(s) found")
+    print(f"  Mode    : Dynamic Zipping & Extension Management API")
     print("=" * 60)
 
-    if not zip_files:
-        print("\n❌ No .zip extension files found in qradar/rules/")
+    if not xml_files:
+        print("\n❌ No .xml rule files found in qradar/rules/")
         sys.exit(1)
 
     success = failed = 0
-    for zf in zip_files:
-        if deploy_extension(zf):
+    for xf in xml_files:
+        if deploy_xml_as_zip(xf):
             success += 1
         else:
             failed += 1
