@@ -88,7 +88,7 @@ def build_payload(rule: dict, is_update: bool = False) -> dict:
         # ── Alert actions: Telegram (script) ───────────────────
         "actions":                   "script",
         "action.script":             "1",
-        "action.script.filename":    "telegram_alert.sh",
+        "action.script.filename":    "servicedesk/splunk_to_servicedesk.py",
     }
 
     # Əgər ALERT_EMAIL təyin olunubsa, Email aksiyasını da payload-a əlavə et
