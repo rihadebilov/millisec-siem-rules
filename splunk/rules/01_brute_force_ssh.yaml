@@ -57,7 +57,3 @@ splunk:
   latest_time: "now"
   alert_threshold: 0
   alert_comparator: "greater than"
-  # --- YENİ ƏLAVƏ EDİLƏN HİSSƏ ---
-  alert_actions:
-    - type: script
-      filename: 'servicedesk/splunk_to_servicedesk.py brute_force_ssh "$result.host$" "$result.targeted_users$" "$result.src_ip$" "$result.attempt_count$"'
