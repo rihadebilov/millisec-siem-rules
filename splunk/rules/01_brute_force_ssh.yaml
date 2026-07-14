@@ -40,7 +40,7 @@ splunk:
         min(_time) as first_seen
         max(_time) as last_seen
         values(user) as targeted_users
-        by src_ip, _time
+        by src_ip, _time, host
     | where attempt_count >= 10
     | eval
         duration_sec = last_seen - first_seen,
@@ -50,10 +50,14 @@ splunk:
         rule_id = "MS-SPL-001",
         rule_name = "Brute Force SSH Login Attempts"
     | convert timeformat="%Y-%m-%d %H:%M:%S" ctime(first_seen) ctime(last_seen)
-    | table rule_id, rule_name, src_ip, attempt_count, unique_users, targeted_users, first_seen, last_seen, duration_sec, severity, mitre_technique
+    | table rule_id, rule_name, host, src_ip, attempt_count, unique_users, targeted_users, first_seen, last_seen, duration_sec, severity, mitre_technique
     | sort - attempt_count
   cron_schedule: "*/5 * * * *"
   earliest_time: "-5m@m"
   latest_time: "now"
   alert_threshold: 0
   alert_comparator: "greater than"
+  # --- YENİ ƏLAVƏ EDİLƏN HİSSƏ ---
+  alert_actions:
+    - type: script
+      filename: 'servicedesk/splunk_to_servicedesk.py brute_force_ssh "$result.host$" "$result.targeted_users$" "$result.src_ip$" "$result.attempt_count$"'
