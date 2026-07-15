@@ -1,0 +1,28 @@
+title: SOC Windows Security Rules
+status: experimental
+description: Task 15 ucun hazirlanmis Sigma rule-lari
+author: SOC Analyst (Blue Team)
+
+rules:
+  - title: MS-QRD-011 Yeni User Yaradilmasi
+    id: 1a2b3c4d-5e6f-7g8h-9i0j-1k2l3m4n5o6p
+    logsource:
+      product: windows
+      service: security
+    detection:
+      selection:
+        EventID: 4720
+    condition: selection
+    level: medium
+
+  - title: MS-QRD-012 Admin Qrupuna Icazesiz Elave
+    id: 2b3c4d5e-6f7g-8h9i-0j1k-2l3m4n5o6p7q
+    logsource:
+      product: windows
+      service: security
+    detection:
+      selection:
+        EventID: 4732
+        TargetUserName: '*Admin*'
+    condition: selection
+    level: high
